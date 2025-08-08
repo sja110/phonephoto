@@ -1,5 +1,6 @@
 package com.twobecome.phonephoto
 
+import FullFeaturedImageGallery
 import android.Manifest
 import android.content.pm.PackageManager
 import android.os.Build
@@ -8,22 +9,16 @@ import android.util.Log
 import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Surface
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.twobecome.phonephoto.data.ImageRepository
-import com.twobecome.phonephoto.domain.UploadUseCase
 import com.twobecome.phonephoto.ui.main.MainViewModel
-import com.twobecome.phonephoto.ui.theme.PhonephotoTheme
 import dagger.hilt.android.AndroidEntryPoint
 
 @AndroidEntryPoint
@@ -48,6 +43,14 @@ class MainActivity : ComponentActivity() {
 
         checkPermissions()
 
+        setContent {
+            MaterialTheme {
+                Surface(modifier = Modifier.fillMaxSize()) {
+                    FullFeaturedImageGallery() // 🔥 여기서 화면 구성
+                }
+            }
+        }
+
     }
 
     private val permissionLauncher = registerForActivityResult(
@@ -56,6 +59,7 @@ class MainActivity : ComponentActivity() {
         if (isGranted) {
             // OK
         } else {
+
             Toast.makeText(this, "이미지 접근 권한이 필요합니다", Toast.LENGTH_SHORT).show()
         }
     }

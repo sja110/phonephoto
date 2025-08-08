@@ -6,6 +6,7 @@ plugins {
     alias(libs.plugins.android.application)
     kotlin("kapt")
 
+
 }
 
 android {
@@ -63,7 +64,26 @@ android {
 
 dependencies {
 
+    implementation(libs.accompanist.pager)
+    implementation(libs.accompanist.pager.indicators)
+
+    implementation("androidx.compose.animation:animation:1.5.0")
+    implementation("androidx.navigation:navigation-compose:2.7.0")
+
+// For shared element support
+    implementation("com.google.accompanist:accompanist-navigation-animation:0.30.0") // 또는 최신 버전
+
+    implementation("androidx.hilt:hilt-navigation-compose:1.2.0")
+
+
+    // Coil (Compose)
+    implementation("io.coil-kt:coil-compose:2.5.0")
+
+    // Accompanist Permissions (권한 처리용)
+    implementation("com.google.accompanist:accompanist-permissions:0.35.0-alpha")
+
     implementation(libs.dagger.hilt)
+    implementation(libs.androidx.animation)
     kapt(libs.dagger.hilt.compiler)
     implementation(libs.javapoet)
     implementation(libs.androidx.work.runtime.ktx)
