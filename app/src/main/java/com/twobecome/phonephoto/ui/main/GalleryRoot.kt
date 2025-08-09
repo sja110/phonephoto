@@ -1,17 +1,12 @@
 
-package com.twobecome.phonephoto.ui.main.GalleryRoot
+package com.twobecome.phonephoto.ui.main
 
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
-import android.net.ConnectivityManager
-import android.net.Network
-import android.net.NetworkCapabilities
-import android.net.NetworkRequest
 import android.net.Uri
-import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.Environment
 import android.os.StatFs
@@ -20,81 +15,80 @@ import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.*
-import androidx.compose.animation.core.Animatable
-import androidx.compose.animation.core.FastOutSlowInEasing
-import androidx.compose.animation.core.LinearOutSlowInEasing
-import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.spring
-import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Clear
-import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
-import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.graphics.takeOrElse
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.*
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
-import coil.ImageLoader
-import coil.compose.rememberAsyncImagePainter
-import coil.disk.DiskCache
-import coil.memory.MemoryCache
-import coil.request.CachePolicy
-import coil.request.ImageRequest
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.io.File
 import java.time.*
 import java.time.format.DateTimeFormatter
 
-// ----------------------- 데이터 모델 -----------------------
+// ✅ Engine v2 + profile imports (패키지명 교체 필요)
+import android.graphics.Bitmap
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiManager
+import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.ui.focus.onFocusChanged
+import com.twobecome.phonephoto.config.AppProfile
+import com.twobecome.phonephoto.thumb.ThumbnailEngineV2
+
+// ---- 데이터 ----
 data class MediaItem(val uri: Uri, val takenAtMillis: Long)
 data class MonthSection(val ym: YearMonth, val title: String, val items: List<MediaItem>)
 
-// 화면 상태
 private sealed interface Screen {
     data object Overview : Screen
     data class YearDetail(val year: Year) : Screen
     data class SearchResult(val title: String, val sections: List<MonthSection>) : Screen
 }
 
-// ----------------------- 엔트리 -----------------------
-@OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+// ---- Entry ----
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalAnimationApi::class)
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun GalleryRoot() {
     val context = LocalContext.current
     val activity = context as? Activity
     val cr = context.contentResolver
-    val imageLoader = remember { createCustomImageLoader(context) }
 
     var allImages by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var photoCount by remember { mutableStateOf(0) }
@@ -131,10 +125,7 @@ fun GalleryRoot() {
         } else {
             backPressedOnce = true
             Toast.makeText(context, "한번 더 뒤로가기를 누르면 앱이 종료됩니다", Toast.LENGTH_SHORT).show()
-            scope.launch {
-                delay(2000)
-                backPressedOnce = false
-            }
+            scope.launch { delay(2000); backPressedOnce = false }
         }
     }
 
@@ -144,7 +135,7 @@ fun GalleryRoot() {
                 CenterAlignedTopAppBar(
                     title = {
                         val titleText = when (val s = screen) {
-                            Screen.Overview -> "갤러리 개요"
+                            Screen.Overview -> "Phone-Photo"
                             is Screen.YearDetail -> "${s.year.value}년 사진"
                             is Screen.SearchResult -> s.title
                         }
@@ -153,7 +144,7 @@ fun GalleryRoot() {
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
                         )
                     },
-                    navigationIcon = {} // 뒤로가기 아이콘 없음
+                    navigationIcon = {} // 뒤로가기 아이콘 제거
                 )
 
                 UsageAndCountBar(
@@ -173,11 +164,7 @@ fun GalleryRoot() {
                     onSearch = {
                         val days = inputValue.toLongOrNull() ?: return@SearchBarDaysOnly
                         val targetDate = LocalDate.now().minusDays(days)
-                        val targetDateMillis = targetDate
-                            .atStartOfDay(ZoneId.systemDefault())
-                            .toInstant()
-                            .toEpochMilli()
-
+                        val targetDateMillis = targetDate.atStartOfDay(ZoneId.systemDefault()).toInstant().toEpochMilli()
                         val sections = searchImagesByDate(allImages, targetDateMillis)
                         val title = "검색결과: ${targetDate.format(DateTimeFormatter.ISO_LOCAL_DATE)}"
                         screen = Screen.SearchResult(title, sections)
@@ -194,85 +181,67 @@ fun GalleryRoot() {
             }
         }
     ) { padding ->
-        // 썸네일 캐시 워밍
-        PrefetchThumbnailsOnce(imageLoader = imageLoader, items = allImages)
-
         AnimatedContent(
             targetState = screen,
             transitionSpec = {
                 val enter = slideInHorizontally(initialOffsetX = { it / 3 }) + fadeIn()
-                val exit = slideOutHorizontally(targetOffsetX = { -it / 3 }) + fadeOut()
+                val exit  = slideOutHorizontally(targetOffsetX = { -it / 3 }) + fadeOut()
                 enter togetherWith exit
             },
             label = "ScreenTransition"
         ) { s ->
             when (s) {
-                Screen.Overview -> {
-                    OverviewByYear(
-                        allImages = allImages,
-                        imageLoader = imageLoader,
-                        onClickAny = { yearClicked -> screen = Screen.YearDetail(yearClicked) },
-                        modifier = Modifier.padding(padding)
-                    )
-                }
-                is Screen.YearDetail -> {
-                    YearDetailScreen(
-                        year = s.year,
-                        allImages = allImages,
-                        imageLoader = imageLoader,
-                        onBack = { screen = Screen.Overview },
-                        modifier = Modifier.padding(padding)
-                    )
-                }
-                is Screen.SearchResult -> {
-                    SearchResultScreen(
-                        title = s.title,
-                        sections = s.sections,
-                        imageLoader = imageLoader,
-                        onBack = { screen = Screen.Overview },
-                        modifier = Modifier.padding(padding)
-                    )
-                }
+                Screen.Overview -> OverviewByYear(
+                    allImages = allImages,
+                    onClickAny = { y -> screen = Screen.YearDetail(y) },
+                    modifier = Modifier.padding(padding)
+                )
+                is Screen.YearDetail -> YearDetailScreen(
+                    year = s.year,
+                    allImages = allImages,
+                    onBack = { screen = Screen.Overview },
+                    modifier = Modifier.padding(padding)
+                )
+                is Screen.SearchResult -> SearchResultScreen(
+                    title = s.title,
+                    sections = s.sections,
+                    onBack = { screen = Screen.Overview },
+                    modifier = Modifier.padding(padding)
+                )
             }
         }
     }
 }
 
-// ----------------------- 타이틀: 글자 전체 소프트 리빌 -----------------------
+// ---- 타이틀 소프트 리빌 ----
 @Composable
 fun SoftRevealTitle(
     text: String,
     style: TextStyle,
     appearMillis: Int = 420,
-    liftStiffness: Float = Spring.StiffnessLow,
     startLetterSpacingEm: Float = -0.02f,
     startScale: Float = 0.985f,
     startAlpha: Float = 0.88f,
     startTranslateYdp: Float = 6f
 ) {
-    val density = LocalDensity.current
     val progress = remember(text) { Animatable(0f) }
     val lift = remember(text) { Animatable(startTranslateYdp) }
 
     LaunchedEffect(text) {
-        progress.snapTo(0f)
-        lift.snapTo(startTranslateYdp)
+        progress.snapTo(0f); lift.snapTo(startTranslateYdp)
         progress.animateTo(1f, tween(appearMillis, easing = LinearOutSlowInEasing))
-        lift.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = liftStiffness))
+        lift.animateTo(0f, spring(dampingRatio = 0.9f, stiffness = Spring.StiffnessLow))
     }
 
     val p = progress.value
     val scale = startScale + (1f - startScale) * p
     val overallAlpha = startAlpha + (1f - startAlpha) * p
-    val translateYpx = with(density) { (startTranslateYdp.dp.toPx() * (1f - p)) }
+    val translateYpx = with(LocalDensity.current) { (startTranslateYdp.dp.toPx() * (1f - p)) }
     val letterSpacingEm = startLetterSpacingEm * (1f - p)
 
-    val color = style.color.takeOrElse { MaterialTheme.colorScheme.onSurface }
     val annotated = remember(text, p) {
         buildAnnotatedString {
-            pushStyle(SpanStyle(color = color, letterSpacing = letterSpacingEm.em))
-            append(text)
-            pop()
+            withStyle(SpanStyle(letterSpacing = letterSpacingEm.em)) { append(text) }
         }
     }
 
@@ -289,7 +258,6 @@ fun SoftRevealTitle(
     )
 }
 
-// ----------------------- 디스크 사용량 + Wi-Fi + 카운트 -----------------------
 @Composable
 fun UsageAndCountBar(
     usedBytes: Long,
@@ -361,10 +329,29 @@ fun UsageAndCountBar(
             // 오른쪽: 사진/동영상 카운트
             Row(
                 horizontalArrangement = Arrangement.End,
-                modifier = Modifier.padding(end = 8.dp)
+                modifier = Modifier.padding(end = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Icon(
+                    imageVector = Icons.Filled.Image,
+                    contentDescription = "사진",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = "\uD83D\uDDBC️ 사진 : $photoCount / \uD83C\uDF9C️ 동영상 : $videoCount",
+                    text = "$photoCount / ",
+                    style = MaterialTheme.typography.labelMedium
+                )
+                Icon(
+                    imageVector = Icons.Filled.Videocam,
+                    contentDescription = "동영상",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.size(16.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = "$videoCount",
                     style = MaterialTheme.typography.labelMedium
                 )
             }
@@ -424,8 +411,9 @@ fun rememberWifiLabel(): State<String> {
     return labelState
 }
 
-// ----------------------- 검색 바 -----------------------
-@OptIn(ExperimentalComposeUiApi::class)
+
+// ---- 검색 바 (숫자만, 힌트, X, 부드러운 텍스트 페이드) ----
+@OptIn(ExperimentalAnimationApi::class)
 @Composable
 private fun SearchBarDaysOnly(
     value: String,
@@ -440,34 +428,42 @@ private fun SearchBarDaysOnly(
     val focusManager = LocalFocusManager.current
     val keyboard = LocalSoftwareKeyboardController.current
 
-    // 컨테이너 등장 애니메이션
     val intro = remember { Animatable(0f) }
     LaunchedEffect(animateKey) {
-        intro.snapTo(0f)
-        intro.animateTo(1f, tween(300, easing = LinearOutSlowInEasing))
+        intro.snapTo(0f); intro.animateTo(1f, tween(300, easing = LinearOutSlowInEasing))
     }
     val introAlpha = 0.9f + 0.1f * intro.value
     val introTranslate = 6f * (1f - intro.value)
 
-    // 버튼 딜레이
-    val btnIntro = remember { Animatable(0f) }
-    LaunchedEffect(animateKey) {
-        btnIntro.snapTo(0f)
-        delay(90)
-        btnIntro.animateTo(1f, tween(220, easing = LinearOutSlowInEasing))
-    }
-    val btnAlpha = 0.85f + 0.15f * btnIntro.value
-    val btnTranslate = 4f * (1f - btnIntro.value)
-
-    // 포커스/밑줄
     var isFocused by rememberSaveable { mutableStateOf(false) }
     val underlineThickness by animateDpAsState(
         targetValue = if (isFocused) 2.dp else 1.dp,
-        animationSpec = tween(180, easing = LinearOutSlowInEasing)
+        animationSpec = tween(180, easing = LinearOutSlowInEasing), label = "underline"
     )
-
-    // X 아이콘 영역 고정폭
     val clearSlotWidth = 32.dp
+
+    // ✅ 입력 비었을 때만 반짝임
+    val isEmpty = value.isBlank()
+    val infinite = rememberInfiniteTransition(label = "searchGlow")
+    val glowAlpha by infinite.animateFloat(
+        initialValue = 0.55f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowAlpha"
+    )
+    // (선택) 아주 미세한 스케일 펄스
+    val glowScale by infinite.animateFloat(
+        initialValue = 0.995f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(900, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowScale"
+    )
 
     Row(
         modifier = modifier.graphicsLayer(
@@ -477,13 +473,11 @@ private fun SearchBarDaysOnly(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-        // ── 입력 영역 (Row 스코프에서 weight 사용) ──
         Box(
             modifier = Modifier
-                .weight(1f)               // ✅ Row 안에서 weight 정상 사용
+                .weight(1f)
                 .heightIn(min = 40.dp)
         ) {
-            // 새로 입력된 부분 알파 애니메이션
             var prevValue by rememberSaveable { mutableStateOf("") }
             val animAlpha = remember { Animatable(1f) }
             var animStart by remember { mutableStateOf(0) }
@@ -496,13 +490,7 @@ private fun SearchBarDaysOnly(
                     animStart = old.length
                     animSegment = new.substring(animStart)
                     animAlpha.snapTo(0f)
-                    animAlpha.animateTo(
-                        targetValue = 1f,
-                        animationSpec = tween(
-                            durationMillis = 350, // ⏳ 기존 180 → 350으로 느리게
-                            easing = FastOutSlowInEasing // 완만하게 시작해서 끝날 때 더 부드럽게
-                        )
-                    )
+                    animAlpha.animateTo(1f, tween(350))
                 } else {
                     animStart = new.length
                     animSegment = ""
@@ -523,7 +511,7 @@ private fun SearchBarDaysOnly(
                 singleLine = true,
                 textStyle = LocalTextStyle.current.copy(
                     fontSize = 14.sp,
-                    color = Color.Transparent // 커서는 유지, 텍스트는 오버레이로 그림
+                    color = Color.Transparent
                 ),
                 cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
                 keyboardOptions = KeyboardOptions(
@@ -543,10 +531,9 @@ private fun SearchBarDaysOnly(
                         Box(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(end = clearSlotWidth) // X 자리 미리 확보 → 흔들림 없음
+                                .padding(end = clearSlotWidth)
                                 .padding(vertical = 8.dp)
                         ) {
-                            // 힌트: 입력칸 내부 오버레이
                             if (value.isEmpty()) {
                                 Text(
                                     text = "숫자 입력",
@@ -554,11 +541,7 @@ private fun SearchBarDaysOnly(
                                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
                                 )
                             }
-
-                            // 1) 실제 입력 필드(커서/선택 영역용)
                             inner()
-
-                            // 2) 우리가 그리는 텍스트(추가분만 알파 페이드)
                             val baseColor = MaterialTheme.colorScheme.onSurface
                             val annotated = remember(value, animAlpha.value, animStart, animSegment) {
                                 buildAnnotatedString {
@@ -568,12 +551,7 @@ private fun SearchBarDaysOnly(
                                     if (anim.isNotEmpty()) withStyle(SpanStyle(color = baseColor.copy(alpha = animAlpha.value))) { append(anim) }
                                 }
                             }
-                            Text(
-                                text = annotated,
-                                fontSize = 14.sp,
-                                color = baseColor,
-                                maxLines = 1
-                            )
+                            Text(text = annotated, fontSize = 14.sp, color = baseColor, maxLines = 1)
                         }
                         Divider(
                             color = MaterialTheme.colorScheme.primary.copy(alpha = if (isFocused) 0.9f else 0.6f),
@@ -586,7 +564,7 @@ private fun SearchBarDaysOnly(
                     .onFocusChanged { isFocused = it.isFocused }
             )
 
-            // X 아이콘 (입력칸 내부 오른쪽, 고정폭 슬롯)
+            // X 버튼
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -604,7 +582,7 @@ private fun SearchBarDaysOnly(
                         modifier = Modifier.size(24.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Clear,
+                            imageVector = Icons.Default.Close,
                             contentDescription = "지우기",
                             tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f)
                         )
@@ -613,7 +591,7 @@ private fun SearchBarDaysOnly(
             }
         }
 
-        // 검색 버튼(아이콘만) — 딜레이 애니메이션
+        // 검색 버튼 (빈 입력이면 은은하게 반짝임)
         Button(
             onClick = {
                 focusManager.clearFocus(true); keyboard?.hide()
@@ -622,33 +600,25 @@ private fun SearchBarDaysOnly(
             enabled = value.isNotBlank(),
             shape = RoundedCornerShape(8.dp),
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = Color.White,
-                disabledContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.35f),
-                disabledContentColor = Color.White.copy(alpha = 0.8f)
-            ),
-            modifier = Modifier.graphicsLayer(
-                translationY = with(LocalDensity.current) { btnTranslate.dp.toPx() },
-                alpha = btnAlpha
-            )
+            modifier = Modifier.graphicsLayer {
+                alpha = if (isEmpty) glowAlpha else 1f
+                // (선택) 미세 스케일 펄스
+                val s = if (isEmpty) glowScale else 1f
+                scaleX = s
+                scaleY = s
+            }
         ) {
-            Icon(
-                imageVector = Icons.Filled.Search,
-                contentDescription = "검색",
-                modifier = Modifier.size(18.dp)
-            )
+            Icon(imageVector = Icons.Default.Search, contentDescription = "검색", modifier = Modifier.size(18.dp))
         }
     }
 }
 
-// ----------------------- 개요/상세/결과/썸네일 -----------------------
+// ---- Overview / YearDetail / SearchResult ----
 @OptIn(ExperimentalFoundationApi::class)
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun OverviewByYear(
     allImages: List<MediaItem>,
-    imageLoader: ImageLoader,
     onClickAny: (Year) -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -670,7 +640,6 @@ fun OverviewByYear(
             item {
                 ThumbnailGrid(
                     items = topNine,
-                    imageLoader = imageLoader,
                     maxColumns = 3,
                     onClick = { onClickAny(currentYear) }
                 )
@@ -681,7 +650,6 @@ fun OverviewByYear(
             SectionHeader(title = "${year.value}년")
             ThumbnailGrid(
                 items = medias.take(3),
-                imageLoader = imageLoader,
                 maxColumns = 3,
                 onClick = { onClickAny(year) }
             )
@@ -706,74 +674,103 @@ fun SectionHeader(title: String) {
 @Composable
 fun ThumbnailGrid(
     items: List<MediaItem>,
-    imageLoader: ImageLoader,
     maxColumns: Int,
     onClick: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val engine = rememberThumbnailEngine()
+    val uris = remember(items) { items.map { it.uri } }
+    val corner = RoundedCornerShape(10.dp)
+    val thumbSize = AppProfile.THUMB_SIZE
     val baseDelayPerItem = 40L
+
     Column(modifier = modifier.fillMaxWidth().padding(8.dp)) {
-        var rowIndex = 0
+        var position = 0
+
         items.chunked(maxColumns).forEach { rowItems ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                rowItems.forEachIndexed { i, media ->
+                rowItems.forEach { media ->
+                    var bmp by remember(media.uri) { mutableStateOf<Bitmap?>(null) }
                     val alpha = remember(media.uri) { Animatable(0f) }
-                    val scale = remember(media.uri) { Animatable(0.9f) }
+                    val scale = remember(media.uri) { Animatable(0.96f) }
+                    val posForCell = position
 
                     LaunchedEffect(media.uri) {
-                        val delayMs = baseDelayPerItem * (rowIndex * maxColumns + i)
-                        delay(delayMs)
-                        scale.animateTo(
-                            targetValue = 1f,
-                            animationSpec = spring(
-                                dampingRatio = 0.7f,
-                                stiffness = Spring.StiffnessMedium
-                            )
-                        )
-                        alpha.animateTo(1f, animationSpec = tween(220))
+                        val isMemHit = engine.hasInMemory(media.uri, thumbSize)
+                        if (isMemHit) {
+                            val (img, _) = engine.loadOrCreateWithHit(media.uri, thumbSize)
+                            bmp = img
+                            alpha.snapTo(1f); scale.snapTo(1f)
+                        } else {
+                            val delayMs = (baseDelayPerItem * posForCell)
+                                .coerceAtMost(AppProfile.STAGGER_LIMIT_MS.toLong())
+                            delay(delayMs)
+
+                            bmp = null
+                            alpha.snapTo(0f); scale.snapTo(0.96f)
+
+                            val (img, hit) = engine.loadOrCreateWithHit(media.uri, thumbSize)
+                            bmp = img
+                            when (hit) {
+                                ThumbnailEngineV2.HitSource.DISK -> { scale.snapTo(1f); alpha.animateTo(1f, tween(AppProfile.FADE_DISK_MS)) }
+                                ThumbnailEngineV2.HitSource.DECODE, null -> {
+                                    scale.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium))
+                                    alpha.animateTo(1f, tween(AppProfile.FADE_DECODE_MS))
+                                }
+                                ThumbnailEngineV2.HitSource.MEMORY -> { alpha.snapTo(1f); scale.snapTo(1f) }
+                            }
+                        }
+                        engine.prefetchNext(posForCell, maxColumns, uris, thumbSize)
                     }
 
-                    Image(
-                        painter = rememberAsyncImagePainter(
-                            ImageRequest.Builder(LocalContext.current)
-                                .data(media.uri)
-                                .size(256)
-                                .memoryCachePolicy(CachePolicy.ENABLED)
-                                .diskCachePolicy(CachePolicy.ENABLED)
-                                .build(),
-                            imageLoader
-                        ),
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
+                    Box(
                         modifier = Modifier
                             .weight(1f)
                             .aspectRatio(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .graphicsLayer(
-                                alpha = alpha.value,
-                                scaleX = scale.value,
-                                scaleY = scale.value
-                            )
+                            .clip(corner)
                             .clickable { onClick() }
-                    )
+                    ) {
+                        if (bmp == null) {
+                            // 간단한 쉬머 대체 (회색 박스)
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { this.alpha = 0.3f }
+                                    .clip(corner)
+                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                            )
+                        } else {
+                            Image(
+                                bitmap = bmp!!.asImageBitmap(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer(
+                                        alpha = alpha.value,
+                                        scaleX = scale.value,
+                                        scaleY = scale.value
+                                    )
+                            )
+                        }
+                    }
+                    position++
                 }
                 repeat(maxColumns - rowItems.size) {
-                    Spacer(Modifier.weight(1f).aspectRatio(1f))
+                    Spacer(Modifier.weight(1f).aspectRatio(1f)); position++
                 }
             }
             Spacer(Modifier.height(6.dp))
-            rowIndex++
         }
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalAnimationApi::class)
 @RequiresApi(Build.VERSION_CODES.O)
 @Composable
 fun YearDetailScreen(
     year: Year,
     allImages: List<MediaItem>,
-    imageLoader: ImageLoader,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -784,7 +781,7 @@ fun YearDetailScreen(
         targetState = monthSections,
         transitionSpec = {
             val enter = fadeIn() + expandVertically()
-            val exit = fadeOut() + shrinkVertically()
+            val exit  = fadeOut() + shrinkVertically()
             enter togetherWith exit
         },
         label = "MonthSections"
@@ -795,9 +792,8 @@ fun YearDetailScreen(
                 item {
                     ThumbnailGrid(
                         items = sec.items,
-                        imageLoader = imageLoader,
                         maxColumns = 3,
-                        onClick = { /* TODO: 상세 뷰어 연결 */ }
+                        onClick = { /* TODO */ }
                     )
                 }
             }
@@ -806,12 +802,11 @@ fun YearDetailScreen(
     }
 }
 
-@OptIn(ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class, ExperimentalAnimationApi::class)
 @Composable
 private fun SearchResultScreen(
     title: String,
     sections: List<MonthSection>,
-    imageLoader: ImageLoader,
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -821,7 +816,7 @@ private fun SearchResultScreen(
         targetState = sections,
         transitionSpec = {
             val enter = fadeIn() + expandVertically()
-            val exit = fadeOut() + shrinkVertically()
+            val exit  = fadeOut() + shrinkVertically()
             enter togetherWith exit
         },
         label = "SearchSections"
@@ -832,72 +827,32 @@ private fun SearchResultScreen(
                 item {
                     ThumbnailGrid(
                         items = sec.items,
-                        imageLoader = imageLoader,
                         maxColumns = 3,
-                        onClick = { /* TODO: 상세 뷰어 */ }
+                        onClick = { /* TODO */ }
                     )
                 }
             }
             if (list.isEmpty()) {
-                item {
-                    Box(Modifier.fillMaxWidth().padding(24.dp)) {
-                        Text("검색 결과가 없습니다.")
-                    }
-                }
+                item { Box(Modifier.fillMaxWidth().padding(24.dp)) { Text("검색 결과가 없습니다.") } }
             }
             item { Spacer(Modifier.height(12.dp)) }
         }
     }
 }
 
-// ----------------------- 프리페치 + ImageLoader -----------------------
+// ---- remember 엔진 ----
 @Composable
-fun PrefetchThumbnailsOnce(
-    imageLoader: ImageLoader,
-    items: List<MediaItem>,
-    count: Int = 60,
-    thumbSizePx: Int = 256
-) {
-    var done by rememberSaveable { mutableStateOf(false) }
+fun rememberThumbnailEngine(): ThumbnailEngineV2 {
     val context = LocalContext.current
-
-    LaunchedEffect(items.isNotEmpty()) {
-        if (done || items.isEmpty()) return@LaunchedEffect
-        items.take(count).forEach { media ->
-            val req = ImageRequest.Builder(context)
-                .data(media.uri)
-                .size(thumbSizePx)
-                .memoryCachePolicy(CachePolicy.ENABLED)
-                .diskCachePolicy(CachePolicy.ENABLED)
-                .build()
-            imageLoader.enqueue(req)
-        }
-        done = true
-    }
+    val engine = remember { ThumbnailEngineV2(context) }
+    DisposableEffect(Unit) { onDispose { engine.close() } }
+    return engine
 }
 
-fun createCustomImageLoader(context: Context): ImageLoader =
-    ImageLoader.Builder(context)
-        .crossfade(true)
-        .memoryCache {
-            MemoryCache.Builder(context)
-                .maxSizePercent(0.35)
-                .build()
-        }
-        .diskCache {
-            DiskCache.Builder()
-                .directory(File(context.cacheDir, "image_cache"))
-                .maxSizeBytes(256L * 1024L * 1024L)
-                .build()
-        }
-        .respectCacheHeaders(false)
-        .build()
-
-// ----------------------- 쿼리/그룹핑/검색 유틸 -----------------------
+// ---- 쿼리/그룹핑/검색 ----
 @RequiresApi(Build.VERSION_CODES.O)
 fun queryAllImagesWithDates(cr: ContentResolver): List<MediaItem> {
     val out = mutableListOf<MediaItem>()
-
     val projection = arrayOf(
         MediaStore.Images.Media._ID,
         MediaStore.Images.Media.DATE_TAKEN,
@@ -905,7 +860,6 @@ fun queryAllImagesWithDates(cr: ContentResolver): List<MediaItem> {
     )
     val sort = "${MediaStore.Images.Media.DATE_TAKEN} DESC, ${MediaStore.Images.Media.DATE_ADDED} DESC"
     val uri = MediaStore.Images.Media.EXTERNAL_CONTENT_URI
-
     cr.query(uri, projection, null, null, sort)?.use { c ->
         val idCol = c.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
         val takenCol = c.getColumnIndexOrThrow(MediaStore.Images.Media.DATE_TAKEN)
@@ -937,21 +891,17 @@ fun queryAllVideosCount(cr: ContentResolver): Int {
 fun groupYearByMonth(year: Year, all: List<MediaItem>): List<MonthSection> {
     if (all.isEmpty()) return emptyList()
     val zone = ZoneId.systemDefault()
-    val filtered = all.filter { media ->
-        val y = Instant.ofEpochMilli(media.takenAtMillis).atZone(zone).year
+    val filtered = all.filter {
+        val y = Instant.ofEpochMilli(it.takenAtMillis).atZone(zone).year
         y == year.value
     }
-    val grouped = filtered.groupBy { media ->
-        val dt = Instant.ofEpochMilli(media.takenAtMillis).atZone(zone).toLocalDate()
+    val grouped = filtered.groupBy {
+        val dt = Instant.ofEpochMilli(it.takenAtMillis).atZone(zone).toLocalDate()
         YearMonth.of(dt.year, dt.month)
     }.toSortedMap(compareByDescending<YearMonth> { it.year }.thenByDescending { it.monthValue })
 
     return grouped.map { (ym, list) ->
-        MonthSection(
-            ym = ym,
-            title = String.format("%04d년 %02d월", ym.year, ym.monthValue),
-            items = list
-        )
+        MonthSection(ym = ym, title = String.format("%04d년 %02d월", ym.year, ym.monthValue), items = list)
     }
 }
 
@@ -961,10 +911,8 @@ fun groupByMonthForDate(all: List<MediaItem>, date: LocalDate): List<MonthSectio
     val zone = ZoneId.systemDefault()
     val start = date.atStartOfDay(zone).toInstant().toEpochMilli()
     val end = date.plusDays(1).atStartOfDay(zone).toInstant().toEpochMilli()
-
     val dayItems = all.filter { it.takenAtMillis in start until end }
     if (dayItems.isEmpty()) return emptyList()
-
     val ym = YearMonth.of(date.year, date.month)
     return listOf(
         MonthSection(
@@ -976,10 +924,7 @@ fun groupByMonthForDate(all: List<MediaItem>, date: LocalDate): List<MonthSectio
 }
 
 @RequiresApi(Build.VERSION_CODES.O)
-fun searchImagesByDate(
-    allImages: List<MediaItem>,
-    targetDateMillis: Long
-): List<MonthSection> {
+fun searchImagesByDate(allImages: List<MediaItem>, targetDateMillis: Long): List<MonthSection> {
     val zone = ZoneId.systemDefault()
     val date = Instant.ofEpochMilli(targetDateMillis).atZone(zone).toLocalDate()
     return groupByMonthForDate(allImages, date)

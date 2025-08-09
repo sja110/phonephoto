@@ -18,7 +18,7 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.lifecycleScope
 import com.twobecome.phonephoto.data.ImageRepository
-import com.twobecome.phonephoto.ui.main.GalleryRoot.GalleryRoot
+import com.twobecome.phonephoto.ui.main.GalleryRoot
 import com.twobecome.phonephoto.ui.main.MainViewModel
 import dagger.hilt.android.AndroidEntryPoint
 
