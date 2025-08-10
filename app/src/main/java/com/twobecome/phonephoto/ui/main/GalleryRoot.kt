@@ -1,11 +1,13 @@
-
 package com.twobecome.phonephoto.ui.main
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -13,20 +15,26 @@ import android.os.StatFs
 import android.provider.MediaStore
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Image
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Videocam
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -34,6 +42,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -51,25 +60,21 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.time.*
 import java.time.format.DateTimeFormatter
-
-// ✅ Engine v2 + profile imports (패키지명 교체 필요)
 import android.graphics.Bitmap
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.net.wifi.WifiManager
-import androidx.compose.foundation.background
-import androidx.compose.foundation.lazy.items
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.ui.focus.onFocusChanged
 import com.twobecome.phonephoto.config.AppProfile
+import com.twobecome.phonephoto.thumb.ShimmerBox
 import com.twobecome.phonephoto.thumb.ThumbnailEngineV2
+import com.twobecome.phonephoto.ui.viewer.ImageViewerActivity
 
 // ---- 데이터 ----
 data class MediaItem(val uri: Uri, val takenAtMillis: Long)
@@ -81,6 +86,17 @@ private sealed interface Screen {
     data class SearchResult(val title: String, val sections: List<MonthSection>) : Screen
 }
 
+private fun hasMediaPermission(context: Context): Boolean {
+    val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+        Manifest.permission.READ_MEDIA_IMAGES
+    } else Manifest.permission.READ_EXTERNAL_STORAGE
+    return ContextCompat.checkSelfPermission(context, perm) == PackageManager.PERMISSION_GRANTED
+}
+
+private fun mediaPermission(): String = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+    Manifest.permission.READ_MEDIA_IMAGES
+} else Manifest.permission.READ_EXTERNAL_STORAGE
+
 // ---- Entry ----
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalAnimationApi::class)
 @RequiresApi(Build.VERSION_CODES.O)
@@ -89,6 +105,18 @@ fun GalleryRoot() {
     val context = LocalContext.current
     val activity = context as? Activity
     val cr = context.contentResolver
+
+    // 권한 상태 --------------------------------------------------------------
+    var granted by remember { mutableStateOf(hasMediaPermission(context)) }
+    val permission = remember { mediaPermission() }
+    val requestPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
+        granted = ok
+    }
+
+    // 첫 진입 시 권한이 없으면 즉시 요청(한 번만)
+    LaunchedEffect(Unit) {
+        if (!granted) requestPermission.launch(permission)
+    }
 
     var allImages by remember { mutableStateOf<List<MediaItem>>(emptyList()) }
     var photoCount by remember { mutableStateOf(0) }
@@ -100,12 +128,18 @@ fun GalleryRoot() {
     val focusManager = LocalFocusManager.current
     val scope = rememberCoroutineScope()
 
-    // 초기 로드
-    LaunchedEffect(Unit) {
-        val images = queryAllImagesWithDates(cr)
-        allImages = images
-        photoCount = images.size
-        videoCount = queryAllVideosCount(cr)
+    // ✅ 권한 변화를 키로 삼아 초기 로드 수행 (첫 실행 빈 목록 문제 해결)
+    LaunchedEffect(granted) {
+        if (granted) {
+            val images = queryAllImagesWithDates(cr)
+            allImages = images
+            photoCount = images.size
+            videoCount = queryAllVideosCount(cr)
+        } else {
+            allImages = emptyList()
+            photoCount = 0
+            videoCount = 0
+        }
     }
 
     // 화면 전환 시 키보드 숨김
@@ -129,6 +163,7 @@ fun GalleryRoot() {
         }
     }
 
+    // UI -------------------------------------------------------------------
     Scaffold(
         topBar = {
             Column(Modifier.fillMaxWidth()) {
@@ -144,7 +179,7 @@ fun GalleryRoot() {
                             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.SemiBold)
                         )
                     },
-                    navigationIcon = {} // 뒤로가기 아이콘 제거
+                    navigationIcon = {}
                 )
 
                 UsageAndCountBar(
@@ -181,6 +216,20 @@ fun GalleryRoot() {
             }
         }
     ) { padding ->
+        // 권한 없을 때 안내 레이어
+        if (!granted) {
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text("사진을 표시하려면 권한이 필요합니다.")
+                    Spacer(Modifier.height(10.dp))
+                    Button(onClick = { requestPermission.launch(permission) }) {
+                        Text("권한 요청")
+                    }
+                }
+            }
+            return@Scaffold
+        }
+
         AnimatedContent(
             targetState = screen,
             transitionSpec = {
@@ -304,7 +353,6 @@ fun UsageAndCountBar(
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            // 왼쪽: Wi-Fi 상태 (연결됨=초록, 연결없음=빨강) + SSID
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(text = "📶 WI-FI ", style = MaterialTheme.typography.labelMedium)
                 Crossfade(targetState = Pair(connected, ssid), label = "WifiStatusFade") { (isConn, ssidNow) ->
@@ -326,7 +374,6 @@ fun UsageAndCountBar(
                 }
             }
 
-            // 오른쪽: 사진/동영상 카운트
             Row(
                 horizontalArrangement = Arrangement.End,
                 modifier = Modifier.padding(end = 8.dp),
@@ -368,7 +415,6 @@ private fun readCurrentSsid(context: Context): String? {
     return if (clean.equals("<unknown ssid>", ignoreCase = true)) null else clean
 }
 
-/** "Wi-Fi 연결없음" | "Wi-Fi 연결됨" | "Wi-Fi 연결됨 / <SSID>" */
 @Composable
 fun rememberWifiLabel(): State<String> {
     val context = LocalContext.current
@@ -395,7 +441,6 @@ fun rememberWifiLabel(): State<String> {
 
         cm.registerNetworkCallback(request, callback)
 
-        // 초기 상태 세팅
         val active = cm.activeNetwork
         val caps = active?.let { cm.getNetworkCapabilities(it) }
         if (caps?.hasTransport(NetworkCapabilities.TRANSPORT_WIFI) == true) {
@@ -411,8 +456,7 @@ fun rememberWifiLabel(): State<String> {
     return labelState
 }
 
-
-// ---- 검색 바 (숫자만, 힌트, X, 부드러운 텍스트 페이드) ----
+// ---- 검색 바 ----
 @OptIn(ExperimentalAnimationApi::class)
 @Composable
 private fun SearchBarDaysOnly(
@@ -442,7 +486,6 @@ private fun SearchBarDaysOnly(
     )
     val clearSlotWidth = 32.dp
 
-    // ✅ 입력 비었을 때만 반짝임
     val isEmpty = value.isBlank()
     val infinite = rememberInfiniteTransition(label = "searchGlow")
     val glowAlpha by infinite.animateFloat(
@@ -454,7 +497,6 @@ private fun SearchBarDaysOnly(
         ),
         label = "glowAlpha"
     )
-    // (선택) 아주 미세한 스케일 펄스
     val glowScale by infinite.animateFloat(
         initialValue = 0.995f,
         targetValue = 1.0f,
@@ -564,7 +606,6 @@ private fun SearchBarDaysOnly(
                     .onFocusChanged { isFocused = it.isFocused }
             )
 
-            // X 버튼
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterEnd)
@@ -591,7 +632,6 @@ private fun SearchBarDaysOnly(
             }
         }
 
-        // 검색 버튼 (빈 입력이면 은은하게 반짝임)
         Button(
             onClick = {
                 focusManager.clearFocus(true); keyboard?.hide()
@@ -602,7 +642,6 @@ private fun SearchBarDaysOnly(
             contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
             modifier = Modifier.graphicsLayer {
                 alpha = if (isEmpty) glowAlpha else 1f
-                // (선택) 미세 스케일 펄스
                 val s = if (isEmpty) glowScale else 1f
                 scaleX = s
                 scaleY = s
@@ -731,13 +770,9 @@ fun ThumbnailGrid(
                             .clickable { onClick() }
                     ) {
                         if (bmp == null) {
-                            // 간단한 쉬머 대체 (회색 박스)
-                            Box(
-                                Modifier
-                                    .fillMaxSize()
-                                    .graphicsLayer { this.alpha = 0.3f }
-                                    .clip(corner)
-                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                            ShimmerBox(
+                                modifier = Modifier.fillMaxSize(),
+                                corner = corner
                             )
                         } else {
                             Image(
@@ -774,6 +809,7 @@ fun YearDetailScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     BackHandler(onBack = onBack)
     val monthSections = remember(year, allImages) { groupYearByMonth(year, allImages) }
 
@@ -790,10 +826,13 @@ fun YearDetailScreen(
             sections.forEach { sec ->
                 stickyHeader { SectionHeader(title = sec.title) }
                 item {
-                    ThumbnailGrid(
+                    // ✅ 인덱스 반환 버전으로 교체
+                    ThumbnailGridIndexed(
                         items = sec.items,
                         maxColumns = 3,
-                        onClick = { /* TODO */ }
+                        onClickIndex = { idx ->
+                            openViewerActivity(context, idx, sec.items)
+                        }
                     )
                 }
             }
@@ -801,6 +840,7 @@ fun YearDetailScreen(
         }
     }
 }
+
 
 @OptIn(ExperimentalFoundationApi::class, ExperimentalAnimationApi::class)
 @Composable
@@ -810,6 +850,7 @@ private fun SearchResultScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val context = LocalContext.current
     BackHandler(onBack = onBack)
 
     AnimatedContent(
@@ -825,10 +866,12 @@ private fun SearchResultScreen(
             list.forEach { sec ->
                 stickyHeader { SectionHeader(title = sec.title) }
                 item {
-                    ThumbnailGrid(
+                    ThumbnailGridIndexed(
                         items = sec.items,
                         maxColumns = 3,
-                        onClick = { /* TODO */ }
+                        onClickIndex = { idx ->
+                            openViewerActivity(context, idx, sec.items)
+                        }
                     )
                 }
             }
@@ -836,6 +879,99 @@ private fun SearchResultScreen(
                 item { Box(Modifier.fillMaxWidth().padding(24.dp)) { Text("검색 결과가 없습니다.") } }
             }
             item { Spacer(Modifier.height(12.dp)) }
+        }
+    }
+}
+
+@Composable
+fun ThumbnailGridIndexed(
+    items: List<MediaItem>,
+    maxColumns: Int,
+    onClickIndex: (Int) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val engine = rememberThumbnailEngine()
+    val uris = remember(items) { items.map { it.uri } }
+    val corner = RoundedCornerShape(10.dp)
+    val thumbSize = AppProfile.THUMB_SIZE
+    val baseDelayPerItem = 40L
+
+    Column(modifier = modifier.fillMaxWidth().padding(8.dp)) {
+        var position = 0
+
+        items.chunked(maxColumns).forEach { rowItems ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                rowItems.forEach { media ->
+                    var bmp by remember(media.uri) { mutableStateOf<Bitmap?>(null) }
+                    val alpha = remember(media.uri) { Animatable(0f) }
+                    val scale = remember(media.uri) { Animatable(0.96f) }
+                    val posForCell = position
+
+                    LaunchedEffect(media.uri) {
+                        val isMemHit = engine.hasInMemory(media.uri, thumbSize)
+                        if (isMemHit) {
+                            val (img, _) = engine.loadOrCreateWithHit(media.uri, thumbSize)
+                            bmp = img
+                            alpha.snapTo(1f); scale.snapTo(1f)
+                        } else {
+                            val delayMs = (baseDelayPerItem * posForCell)
+                                .coerceAtMost(AppProfile.STAGGER_LIMIT_MS.toLong())
+                            delay(delayMs)
+
+                            bmp = null
+                            alpha.snapTo(0f); scale.snapTo(0.96f)
+
+                            val (img, hit) = engine.loadOrCreateWithHit(media.uri, thumbSize)
+                            bmp = img
+                            when (hit) {
+                                ThumbnailEngineV2.HitSource.DISK -> { scale.snapTo(1f); alpha.animateTo(1f, tween(AppProfile.FADE_DISK_MS)) }
+                                ThumbnailEngineV2.HitSource.DECODE, null -> {
+                                    scale.animateTo(1f, spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium))
+                                    alpha.animateTo(1f, tween(AppProfile.FADE_DECODE_MS))
+                                }
+                                ThumbnailEngineV2.HitSource.MEMORY -> { alpha.snapTo(1f); scale.snapTo(1f) }
+                            }
+                        }
+                        engine.prefetchNext(posForCell, maxColumns, uris, thumbSize)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f)
+                            .clip(corner)
+                            .clickable { onClickIndex(posForCell) }  // ✅ 인덱스 전달
+                    ) {
+                        if (bmp == null) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer { this.alpha = 0.3f }
+                                    .clip(corner)
+                                    .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f))
+                            )
+                        } else {
+                            Image(
+                                bitmap = bmp!!.asImageBitmap(),
+                                contentDescription = null,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .graphicsLayer(
+                                        alpha = alpha.value,
+                                        scaleX = scale.value,
+                                        scaleY = scale.value
+                                    )
+                            )
+                        }
+                    }
+                    position++
+                }
+                repeat(maxColumns - rowItems.size) {
+                    Spacer(Modifier.weight(1f).aspectRatio(1f)); position++
+                }
+            }
+            Spacer(Modifier.height(6.dp))
         }
     }
 }
@@ -936,4 +1072,14 @@ fun getDiskUsageBytes(): Pair<Long, Long> {
     val avail = stat.availableBytes
     val used = (total - avail).coerceAtLeast(0)
     return used to total
+}
+
+private fun openViewerActivity(context: Context, startIndex: Int, items: List<MediaItem>) {
+    val uris = ArrayList(items.map { it.uri.toString() })
+    context.startActivity(
+        Intent(context, ImageViewerActivity::class.java).apply {
+            putExtra(ImageViewerActivity.EXTRA_START_INDEX, startIndex)
+            putStringArrayListExtra(ImageViewerActivity.EXTRA_URIS, uris)
+        }
+    )
 }

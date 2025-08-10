@@ -1,5 +1,33 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
 
+    <!-- 앱 기본 테마 -->
+    <style name="Theme.PhonePhoto" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+
+    <!-- 스플래시 (support용: 접두사 없는 windowSplashScreen* 사용) -->
+    <style name="Theme.PhonePhoto.Splash" parent="@android:style/Theme.Material.NoActionBar">
+        <!-- support 속성 -->
+        <item name="windowSplashScreenBackground">@android:color/transparent</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
+        <item name="windowSplashScreenAnimationDuration">0</item>
+        <item name="postSplashScreenTheme">@style/Theme.PhonePhoto</item>
+
+        <!-- 첫 프레임 깜빡임 방지: Compose 스플래시와 동일 배경 -->
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+    </style>
+
+
+    <!-- Lollipop(API 21)+ 기본 프레임워크 Material 테마를 부모로 사용 -->
+    <style name="Theme.PhonePhoto.Viewer" parent="@android:style/Theme.Material.NoActionBar">
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+    </style>
+
     <style name="Theme.Phonephoto" parent="android:Theme.Material.Light.NoActionBar" />
 </resources>

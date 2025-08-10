@@ -1,0 +1,20 @@
+<!-- app/src/main/res/values-v31/themes.xml -->
+<resources>
+
+    <!-- Android 12+ 전용: 시스템 스플래시를 사실상 숨김 -->
+    <style name="Theme.PhonePhoto.Splash" parent="@android:style/Theme.Material.NoActionBar">
+        <!-- 프레임워크 속성(12+에서만 유효) -->
+        <item name="android:windowSplashScreenBackground">@android:color/transparent</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@drawable/splash_empty</item>
+        <item name="android:windowSplashScreenAnimationDuration">0</item>
+
+        <!-- 스플래시 종료 후 적용될 앱 테마(공통 values에 정의해둔 기본 테마) -->
+        <item name="postSplashScreenTheme">@style/Theme.PhonePhoto</item>
+
+        <!-- 첫 프레임 깜빡임 방지용 배경/바 색 (커스텀 스플래시와 동일) -->
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/black</item>
+    </style>
+
+</resources>
